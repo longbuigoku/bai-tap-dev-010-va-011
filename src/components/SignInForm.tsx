@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Eye, EyeOff, CheckCircle2 } from "lucide-react";
 import { ArrowIcon } from "./ArrowIcon";
 import { signInSchema, SignInFormValues } from "../schemas/auth.schema";
+import { useRecaptcha } from "../hooks/useRecaptcha";
 
 interface UserProfile {
   username: string;
@@ -26,6 +27,7 @@ export const SignInForm: React.FC<SignInFormProps> = ({ onSuccess, onSwitchToSig
   const [serverError, setServerError] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
   const [signedInUser, setSignedInUser] = useState<UserProfile | null>(null);
+  const { executeRecaptcha } = useRecaptcha();
 
   const {
     register,
@@ -43,11 +45,17 @@ export const SignInForm: React.FC<SignInFormProps> = ({ onSuccess, onSwitchToSig
   const onSubmit = async (values: SignInFormValues) => {
     setServerError(null);
     try {
-      // Gọi API xác thực tài khoản qua Google Sheet & Master Salt
+      // 1. Thực thi reCAPTCHA v3 ngầm với action 'login'
+      const recaptchaToken = await executeRecaptcha("login");
+
+      // 2. Gọi API xác thực tài khoản kèm token reCAPTCHA
       const res = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
+        body: JSON.stringify({
+          ...values,
+          recaptchaToken,
+        }),
       });
 
       const result = await res.json();
@@ -56,16 +64,14 @@ export const SignInForm: React.FC<SignInFormProps> = ({ onSuccess, onSwitchToSig
         throw new Error(result.message || "Tài khoản hoặc mật khẩu không chính xác");
       }
 
-      // Xử lý các action khi đăng nhập thành công:
-      // 1. Lưu phiên xác thực vào sessionStorage & localStorage
+      // Lưu phiên xác thực
       sessionStorage.setItem("sensa_auth", "true");
       sessionStorage.setItem("sensa_user", JSON.stringify(result.user));
 
-      // 2. Kích hoạt trạng thái hiển thị thành công mượt mà
+      // Kích hoạt trạng thái hiển thị thành công
       setSignedInUser(result.user);
       setIsSuccess(true);
 
-      // 3. Callback thông báo lên component cha sau một khoảng ngắn
       setTimeout(() => {
         onSuccess(result.user);
       }, 1200);
@@ -193,6 +199,29 @@ export const SignInForm: React.FC<SignInFormProps> = ({ onSuccess, onSwitchToSig
           <ArrowIcon />
         </span>
       </button>
+
+      {/* reCAPTCHA v3 notice */}
+      <p className="text-[11px] text-center text-white/40">
+        Trang được bảo vệ bởi reCAPTCHA và áp dụng{" "}
+        <a
+          href="https://policies.google.com/privacy"
+          target="_blank"
+          rel="noreferrer"
+          className="text-[#FFDE87]/70 underline hover:text-[#FFDE87]"
+        >
+          Chính sách
+        </a>{" "}
+        &amp;{" "}
+        <a
+          href="https://policies.google.com/terms"
+          target="_blank"
+          rel="noreferrer"
+          className="text-[#FFDE87]/70 underline hover:text-[#FFDE87]"
+        >
+          Điều khoản
+        </a>{" "}
+        của Google.
+      </p>
 
       {/* Switch to Sign Up */}
       <p className="text-center text-white/60 text-xs md:text-sm">

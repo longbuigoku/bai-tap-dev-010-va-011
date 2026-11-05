@@ -45,6 +45,7 @@ export const signInSchema = z.object({
     .string()
     .min(1, "Vui lòng nhập mật khẩu")
     .max(100, "Mật khẩu tối đa 100 ký tự"),
+  recaptchaToken: z.string().optional().nullable(),
 });
 
 export type SignInFormValues = z.infer<typeof signInSchema>;
@@ -112,6 +113,7 @@ export const signUpSchema = z.object({
     .min(1, "Vui lòng nhập mật khẩu")
     .max(100, "Mật khẩu tối đa 100 ký tự")
     .optional(),
+  recaptchaToken: z.string().optional().nullable(),
 });
 
 export type SignUpFormValues = z.infer<typeof signUpSchema>;

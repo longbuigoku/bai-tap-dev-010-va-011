@@ -7,6 +7,7 @@ import {
 } from "@/schemas/auth.schema";
 import { hashCredentials } from "@/utils/crypto";
 import { getExistingUsernames, generateUniqueUsername } from "@/utils/sheet";
+import { verifyRecaptchaToken } from "@/utils/recaptcha";
 import { GOOGLE_SHEET_ID, DEFAULT_PASSWORD } from "@/constants/config";
 
 export async function POST(request: NextRequest) {
@@ -34,7 +35,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { salesName, agency, phone, email, password } = validationResult.data;
+    const { salesName, agency, phone, email, password, recaptchaToken } = validationResult.data;
+
+    // 1. Xác thực reCAPTCHA v3 với action "register"
+    const recaptchaResult = await verifyRecaptchaToken(recaptchaToken, "register");
+    if (!recaptchaResult.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: recaptchaResult.message || "Xác thực reCAPTCHA không thành công",
+        },
+        { status: 400 }
+      );
+    }
 
     const rawPassword = password && password.trim() ? password.trim() : DEFAULT_PASSWORD;
     const formattedName = normalizeWhitespace(salesName);
@@ -43,15 +56,14 @@ export async function POST(request: NextRequest) {
     const cleanEmail = email.trim().toLowerCase();
     const formattedAgency = normalizeWhitespace(agency);
 
-    // 1. Kiểm tra username đã tồn tại chưa; nếu đã tồn tại, tự động sinh username mới duy nhất
-    // Ví dụ: nguyenvanty@goku -> nguyenvanty1@goku -> nguyenvanty2@goku...
+    // 2. Kiểm tra username đã tồn tại chưa; nếu đã tồn tại, tự động sinh username mới duy nhất
     const existingUsernames = await getExistingUsernames(GOOGLE_SHEET_ID);
     const assignedUsername = generateUniqueUsername(baseUsername, existingUsernames);
 
-    // 2. Tạo chuỗi hash SHA-256 từ assignedUsername, password và salt
+    // 3. Tạo chuỗi hash SHA-256 từ assignedUsername, password và salt
     const hashedPassword = hashCredentials(assignedUsername, rawPassword);
 
-    // 3. Đưa mật khẩu đã băm (hashedPassword) vào cột password để ghi lên Google Sheet
+    // 4. Đưa mật khẩu đã băm (hashedPassword) vào cột password để ghi lên Google Sheet
     const googleSheetPayload = {
       action: "register",
       secret: process.env.SHEET_API_SECRET,

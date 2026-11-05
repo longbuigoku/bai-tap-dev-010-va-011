@@ -1,11 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { MASTER_HASH, hashCredentials } from "@/utils/crypto";
 import { parseCSVLine } from "@/utils/sheet";
+import { verifyRecaptchaToken } from "@/utils/recaptcha";
 import { GOOGLE_SHEET_ID } from "@/constants/config";
 
 export async function POST(request: NextRequest) {
   try {
-    const { username, password } = await request.json();
+    const { username, password, recaptchaToken } = await request.json();
+
+    // 1. Xác thực reCAPTCHA v3 với action "login"
+    const recaptchaResult = await verifyRecaptchaToken(recaptchaToken, "login");
+    if (!recaptchaResult.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: recaptchaResult.message || "Xác thực reCAPTCHA không thành công",
+        },
+        { status: 400 }
+      );
+    }
 
     const cleanUsername = String(username || "").trim().toLowerCase();
     const cleanPassword = String(password || "").trim();
@@ -17,7 +30,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 1. Tính toán inputHash: SHA-256(`${cleanUsername}:${cleanPassword}:${salt}`)
+    // 2. Tính toán inputHash: SHA-256(`${cleanUsername}:${cleanPassword}:${salt}`)
     const inputHash = hashCredentials(cleanUsername, cleanPassword);
 
     // Kiểm tra tài khoản Master / Admin bypass
@@ -33,7 +46,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 2. Tra cứu tài khoản từ Google Sheet
+    // 3. Tra cứu tài khoản từ Google Sheet
     const sheetCsvUrl = `https://docs.google.com/spreadsheets/d/${GOOGLE_SHEET_ID}/gviz/tq?tqx=out:csv&gid=0&t=${Date.now()}`;
     const sheetResp = await fetch(sheetCsvUrl, {
       method: "GET",
@@ -64,9 +77,6 @@ export async function POST(request: NextRequest) {
         userCol !== "username" &&
         userCol === cleanUsername
       ) {
-        // [Phương án 2]:
-        // So khớp trực tiếp giữa hash lưu trữ (storedPassCol) và hash tạo từ input (inputHash).
-        // (Vẫn giữ điều kiện `|| storedPassCol === cleanPassword` dự phòng cho các dòng cũ dạng plaintext)
         const isMatch = storedPassCol === inputHash || storedPassCol === cleanPassword;
 
         if (isMatch) {

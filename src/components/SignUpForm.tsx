@@ -9,6 +9,7 @@ import {
   signUpSchema,
   SignUpFormValues,
 } from "../schemas/auth.schema";
+import { useRecaptcha } from "../hooks/useRecaptcha";
 
 interface SignUpFormProps {
   onSuccess: (data: { username: string; email: string }) => void;
@@ -22,12 +23,12 @@ export const SignUpForm: React.FC<SignUpFormProps> = ({ onSuccess, onSwitchToSig
     password?: string;
   } | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
+  const { executeRecaptcha } = useRecaptcha();
 
   const {
     register,
     handleSubmit,
     control,
-    setError,
     formState: { errors, isSubmitting },
   } = useForm<SignUpFormValues>({
     resolver: zodResolver(signUpSchema),
@@ -44,26 +45,22 @@ export const SignUpForm: React.FC<SignUpFormProps> = ({ onSuccess, onSwitchToSig
   const onSubmit = async (values: SignUpFormValues) => {
     setServerError(null);
     try {
-      // Gửi yêu cầu đăng ký qua Next.js API route (có kiểm tra username trùng lặp)
+      // 1. Thực thi reCAPTCHA v3 ngầm với action 'register'
+      const recaptchaToken = await executeRecaptcha("register");
+
+      // 2. Gửi yêu cầu đăng ký qua Next.js API route kèm recaptchaToken
       const res = await fetch("/api/register", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(values),
+        body: JSON.stringify({
+          ...values,
+          recaptchaToken,
+        }),
       });
 
       const result = await res.json();
-
-      if (res.status === 409) {
-        // Tài khoản đã tồn tại
-        setError("salesName", {
-          type: "manual",
-          message: result.message || "Tài khoản từ tên này đã tồn tại trong hệ thống",
-        });
-        setServerError(result.message);
-        return;
-      }
 
       if (!res.ok || result.success === false) {
         throw new Error(result.message || "Đăng ký không thành công");
@@ -266,7 +263,7 @@ export const SignUpForm: React.FC<SignUpFormProps> = ({ onSuccess, onSwitchToSig
                 Tôi đồng ý với{" "}
                 <a target="_blank" href="https://360.ecovillagesaigon.com.vn/chinh-sach-bao-mat" className="text-[#FFDE87] underline hover:text-[#FFF3D0]">
                   chính sách bảo mật
-                </a>{" "} 
+                </a>{" "}
                 và điều khoản sử dụng
               </span>
             </label>
@@ -290,6 +287,29 @@ export const SignUpForm: React.FC<SignUpFormProps> = ({ onSuccess, onSwitchToSig
           <ArrowIcon />
         </span>
       </button>
+
+      {/* reCAPTCHA v3 notice */}
+      <p className="text-[11px] text-center text-white/40 pt-1">
+        Trang được bảo vệ bởi reCAPTCHA và áp dụng{" "}
+        <a
+          href="https://policies.google.com/privacy"
+          target="_blank"
+          rel="noreferrer"
+          className="text-[#FFDE87]/70 underline hover:text-[#FFDE87]"
+        >
+          Chính sách
+        </a>{" "}
+        &amp;{" "}
+        <a
+          href="https://policies.google.com/terms"
+          target="_blank"
+          rel="noreferrer"
+          className="text-[#FFDE87]/70 underline hover:text-[#FFDE87]"
+        >
+          Điều khoản
+        </a>{" "}
+        của Google.
+      </p>
 
       {/* Switch to Sign In */}
       <p className="text-center text-white/60 text-xs md:text-sm pt-1">
