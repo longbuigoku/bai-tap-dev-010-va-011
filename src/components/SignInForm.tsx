@@ -1,12 +1,12 @@
 "use client";
 
-import React, { useState } from "react";
-import { useForm } from "react-hook-form";
+import React, { useRef, useState } from "react";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Eye, EyeOff, CheckCircle2 } from "lucide-react";
 import { ArrowIcon } from "./ArrowIcon";
+import { RecaptchaV2, RecaptchaV2Handle } from "./RecaptchaV2";
 import { signInSchema, SignInFormValues } from "../schemas/auth.schema";
-import { useRecaptcha } from "../hooks/useRecaptcha";
 
 interface UserProfile {
   username: string;
@@ -27,17 +27,22 @@ export const SignInForm: React.FC<SignInFormProps> = ({ onSuccess, onSwitchToSig
   const [serverError, setServerError] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
   const [signedInUser, setSignedInUser] = useState<UserProfile | null>(null);
-  const { executeRecaptcha } = useRecaptcha();
+
+  const recaptchaRef = useRef<RecaptchaV2Handle>(null);
 
   const {
     register,
     handleSubmit,
+    control,
+    setValue,
+    setError,
     formState: { errors, isSubmitting },
   } = useForm<SignInFormValues>({
     resolver: zodResolver(signInSchema),
     defaultValues: {
       username: "",
       password: "",
+      recaptchaToken: "",
     },
     mode: "onBlur",
   });
@@ -45,22 +50,25 @@ export const SignInForm: React.FC<SignInFormProps> = ({ onSuccess, onSwitchToSig
   const onSubmit = async (values: SignInFormValues) => {
     setServerError(null);
     try {
-      // 1. Thực thi reCAPTCHA v3 ngầm với action 'login'
-      const recaptchaToken = await executeRecaptcha("login");
-
-      // 2. Gọi API xác thực tài khoản kèm token reCAPTCHA
       const res = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...values,
-          recaptchaToken,
-        }),
+        body: JSON.stringify(values),
       });
 
       const result = await res.json();
 
       if (!res.ok || result.success === false) {
+        // Tự động reset captcha khi không hợp lệ hoặc đăng nhập thất bại
+        recaptchaRef.current?.reset();
+        setValue("recaptchaToken", "");
+
+        if (result.field === "recaptchaToken") {
+          setError("recaptchaToken", {
+            type: "manual",
+            message: result.message || "Xác thực reCAPTCHA không hợp lệ, vui lòng thử lại!",
+          });
+        }
         throw new Error(result.message || "Tài khoản hoặc mật khẩu không chính xác");
       }
 
@@ -107,7 +115,7 @@ export const SignInForm: React.FC<SignInFormProps> = ({ onSuccess, onSwitchToSig
 
   return (
     <form
-      className="pt-5 md:pt-6 space-y-4 md:space-y-5 auth-fade"
+      className="pt-5 md:pt-6 space-y-4 md:space-y-4 auth-fade"
       onSubmit={handleSubmit(onSubmit)}
       noValidate
     >
@@ -133,7 +141,7 @@ export const SignInForm: React.FC<SignInFormProps> = ({ onSuccess, onSwitchToSig
             maxLength={50}
             aria-invalid={!!errors.username}
             {...register("username")}
-            className={`w-full border-b bg-transparent pb-2 pt-3 text-sm md:text-base text-white placeholder:text-white/40 outline-none transition-colors ${
+            className={`w-full border-b bg-transparent pb-2 pt-2.5 text-sm md:text-base text-white placeholder:text-white/40 outline-none transition-colors ${
               errors.username
                 ? "border-red-400 focus:border-red-300"
                 : "border-white/30 hover:border-white/50 focus:border-[#FFDE87]"
@@ -161,7 +169,7 @@ export const SignInForm: React.FC<SignInFormProps> = ({ onSuccess, onSwitchToSig
             maxLength={100}
             aria-invalid={!!errors.password}
             {...register("password")}
-            className={`w-full border-b bg-transparent pb-2 pt-3 text-sm md:text-base text-white placeholder:text-white/40 outline-none transition-colors pr-9 ${
+            className={`w-full border-b bg-transparent pb-2 pt-2.5 text-sm md:text-base text-white placeholder:text-white/40 outline-none transition-colors pr-9 ${
               errors.password
                 ? "border-red-400 focus:border-red-300"
                 : "border-white/30 hover:border-white/50 focus:border-[#FFDE87]"
@@ -188,43 +196,47 @@ export const SignInForm: React.FC<SignInFormProps> = ({ onSuccess, onSwitchToSig
         )}
       </div>
 
+      {/* reCAPTCHA v2 Checkbox ("I'm not a robot") */}
+      <Controller
+        name="recaptchaToken"
+        control={control}
+        render={({ field }) => (
+          <RecaptchaV2
+            ref={recaptchaRef}
+            onChange={(token) => field.onChange(token || "")}
+            onExpired={() => {
+              setValue("recaptchaToken", "");
+              setError("recaptchaToken", {
+                type: "manual",
+                message: "Mã xác minh reCAPTCHA đã hết hạn. Vui lòng tick lại!",
+              });
+            }}
+            onError={() => {
+              setValue("recaptchaToken", "");
+              setError("recaptchaToken", {
+                type: "manual",
+                message: "Có lỗi khi tải reCAPTCHA. Vui lòng thử lại!",
+              });
+            }}
+            error={errors.recaptchaToken?.message}
+          />
+        )}
+      />
+
       {/* Submit Button */}
       <button
         type="submit"
         disabled={isSubmitting}
         className="group w-full mt-2 py-3 md:py-3.5 rounded-xl text-white font-semibold text-base tracking-wide bg-gradient-to-r from-[#2c3718] via-[#4C5538] to-[#2c3718] hover:from-[#3a4920] hover:to-[#3a4920] border border-[#FFDE87]/60 shadow-[0_4px_20px_rgba(0,0,0,0.35)] transition-all duration-300 hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-3 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
       >
-        <span>{isSubmitting ? "Đang kiểm tra tài khoản..." : "Đăng nhập"}</span>
+        <span>{isSubmitting ? "Đang kiểm tra..." : "Đăng nhập"}</span>
         <span className="w-6 h-auto text-white transition-transform duration-300 group-hover:translate-x-1.5 flex items-center justify-center">
           <ArrowIcon />
         </span>
       </button>
 
-      {/* reCAPTCHA v3 notice */}
-      <p className="text-[11px] text-center text-white/40">
-        Trang được bảo vệ bởi reCAPTCHA và áp dụng{" "}
-        <a
-          href="https://policies.google.com/privacy"
-          target="_blank"
-          rel="noreferrer"
-          className="text-[#FFDE87]/70 underline hover:text-[#FFDE87]"
-        >
-          Chính sách
-        </a>{" "}
-        &amp;{" "}
-        <a
-          href="https://policies.google.com/terms"
-          target="_blank"
-          rel="noreferrer"
-          className="text-[#FFDE87]/70 underline hover:text-[#FFDE87]"
-        >
-          Điều khoản
-        </a>{" "}
-        của Google.
-      </p>
-
       {/* Switch to Sign Up */}
-      <p className="text-center text-white/60 text-xs md:text-sm">
+      <p className="text-center text-white/60 text-xs md:text-sm pt-1">
         Chưa có tài khoản?{" "}
         <button
           type="button"

@@ -1,20 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { MASTER_HASH, hashCredentials } from "@/utils/crypto";
 import { parseCSVLine } from "@/utils/sheet";
-import { verifyRecaptchaToken } from "@/utils/recaptcha";
+import { verifyRecaptchaV2Token } from "@/utils/recaptcha";
 import { GOOGLE_SHEET_ID } from "@/constants/config";
 
 export async function POST(request: NextRequest) {
   try {
     const { username, password, recaptchaToken } = await request.json();
 
-    // 1. Xác thực reCAPTCHA v3 với action "login"
-    const recaptchaResult = await verifyRecaptchaToken(recaptchaToken, "login");
+    // 1. Xác thực reCAPTCHA v2 ("I'm not a robot")
+    const recaptchaResult = await verifyRecaptchaV2Token(recaptchaToken);
     if (!recaptchaResult.success) {
       return NextResponse.json(
         {
           success: false,
-          message: recaptchaResult.message || "Xác thực reCAPTCHA không thành công",
+          message: recaptchaResult.message || "Vui lòng xác minh 'Tôi không phải là người máy'",
+          field: "recaptchaToken",
         },
         { status: 400 }
       );

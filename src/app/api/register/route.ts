@@ -7,7 +7,7 @@ import {
 } from "@/schemas/auth.schema";
 import { hashCredentials } from "@/utils/crypto";
 import { getExistingUsernames, generateUniqueUsername } from "@/utils/sheet";
-import { verifyRecaptchaToken } from "@/utils/recaptcha";
+import { verifyRecaptchaV2Token } from "@/utils/recaptcha";
 import { GOOGLE_SHEET_ID, DEFAULT_PASSWORD } from "@/constants/config";
 
 export async function POST(request: NextRequest) {
@@ -37,13 +37,14 @@ export async function POST(request: NextRequest) {
 
     const { salesName, agency, phone, email, password, recaptchaToken } = validationResult.data;
 
-    // 1. Xác thực reCAPTCHA v3 với action "register"
-    const recaptchaResult = await verifyRecaptchaToken(recaptchaToken, "register");
+    // 1. Xác thực reCAPTCHA v2 ("I'm not a robot")
+    const recaptchaResult = await verifyRecaptchaV2Token(recaptchaToken);
     if (!recaptchaResult.success) {
       return NextResponse.json(
         {
           success: false,
-          message: recaptchaResult.message || "Xác thực reCAPTCHA không thành công",
+          message: recaptchaResult.message || "Vui lòng xác minh 'Tôi không phải là người máy'",
+          field: "recaptchaToken",
         },
         { status: 400 }
       );

@@ -1,15 +1,15 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Check, CheckCircle2 } from "lucide-react";
 import { ArrowIcon } from "./ArrowIcon";
+import { RecaptchaV2, RecaptchaV2Handle } from "./RecaptchaV2";
 import {
   signUpSchema,
   SignUpFormValues,
 } from "../schemas/auth.schema";
-import { useRecaptcha } from "../hooks/useRecaptcha";
 
 interface SignUpFormProps {
   onSuccess: (data: { username: string; email: string }) => void;
@@ -23,12 +23,15 @@ export const SignUpForm: React.FC<SignUpFormProps> = ({ onSuccess, onSwitchToSig
     password?: string;
   } | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
-  const { executeRecaptcha } = useRecaptcha();
+
+  const recaptchaRef = useRef<RecaptchaV2Handle>(null);
 
   const {
     register,
     handleSubmit,
     control,
+    setValue,
+    setError,
     formState: { errors, isSubmitting },
   } = useForm<SignUpFormValues>({
     resolver: zodResolver(signUpSchema),
@@ -38,6 +41,7 @@ export const SignUpForm: React.FC<SignUpFormProps> = ({ onSuccess, onSwitchToSig
       phone: "",
       email: "",
       agreePolicy: false,
+      recaptchaToken: "",
     },
     mode: "onBlur",
   });
@@ -45,24 +49,28 @@ export const SignUpForm: React.FC<SignUpFormProps> = ({ onSuccess, onSwitchToSig
   const onSubmit = async (values: SignUpFormValues) => {
     setServerError(null);
     try {
-      // 1. Thực thi reCAPTCHA v3 ngầm với action 'register'
-      const recaptchaToken = await executeRecaptcha("register");
-
-      // 2. Gửi yêu cầu đăng ký qua Next.js API route kèm recaptchaToken
+      // Gửi yêu cầu đăng ký qua Next.js API route kèm recaptchaToken
       const res = await fetch("/api/register", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          ...values,
-          recaptchaToken,
-        }),
+        body: JSON.stringify(values),
       });
 
       const result = await res.json();
 
       if (!res.ok || result.success === false) {
+        // Tự động reset captcha khi API trả về lỗi hoặc token không hợp lệ
+        recaptchaRef.current?.reset();
+        setValue("recaptchaToken", "");
+
+        if (result.field === "recaptchaToken") {
+          setError("recaptchaToken", {
+            type: "manual",
+            message: result.message || "Xác thực reCAPTCHA không hợp lệ, vui lòng thử lại!",
+          });
+        }
         throw new Error(result.message || "Đăng ký không thành công");
       }
 
@@ -276,6 +284,33 @@ export const SignUpForm: React.FC<SignUpFormProps> = ({ onSuccess, onSwitchToSig
         )}
       </div>
 
+      {/* reCAPTCHA v2 Checkbox ("I'm not a robot") */}
+      <Controller
+        name="recaptchaToken"
+        control={control}
+        render={({ field }) => (
+          <RecaptchaV2
+            ref={recaptchaRef}
+            onChange={(token) => field.onChange(token || "")}
+            onExpired={() => {
+              setValue("recaptchaToken", "");
+              setError("recaptchaToken", {
+                type: "manual",
+                message: "Mã xác minh reCAPTCHA đã hết hạn. Vui lòng tick lại!",
+              });
+            }}
+            onError={() => {
+              setValue("recaptchaToken", "");
+              setError("recaptchaToken", {
+                type: "manual",
+                message: "Có lỗi khi tải reCAPTCHA. Vui lòng thử lại!",
+              });
+            }}
+            error={errors.recaptchaToken?.message}
+          />
+        )}
+      />
+
       {/* Submit Button */}
       <button
         type="submit"
@@ -287,29 +322,6 @@ export const SignUpForm: React.FC<SignUpFormProps> = ({ onSuccess, onSwitchToSig
           <ArrowIcon />
         </span>
       </button>
-
-      {/* reCAPTCHA v3 notice */}
-      <p className="text-[11px] text-center text-white/40 pt-1">
-        Trang được bảo vệ bởi reCAPTCHA và áp dụng{" "}
-        <a
-          href="https://policies.google.com/privacy"
-          target="_blank"
-          rel="noreferrer"
-          className="text-[#FFDE87]/70 underline hover:text-[#FFDE87]"
-        >
-          Chính sách
-        </a>{" "}
-        &amp;{" "}
-        <a
-          href="https://policies.google.com/terms"
-          target="_blank"
-          rel="noreferrer"
-          className="text-[#FFDE87]/70 underline hover:text-[#FFDE87]"
-        >
-          Điều khoản
-        </a>{" "}
-        của Google.
-      </p>
 
       {/* Switch to Sign In */}
       <p className="text-center text-white/60 text-xs md:text-sm pt-1">
